@@ -1,0 +1,13 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: present
+        update_cache: true
+
+    - name: Copy web app
+      copy:
+        src: ../app/index.html
+        dest: /var/www/html/index.html
