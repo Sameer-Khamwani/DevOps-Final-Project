@@ -47,3 +47,9 @@ variable "public_key_path" {
   description = "Path to your SSH public key"
   default     = "~/.ssh/id_rsa.pub"
 }
+
+
+variable "subscription_id" {}
+variable "client_id" {}
+variable "client_secret" {}
+variable "tenant_id" {}
