@@ -77,18 +77,6 @@ docker run -d ^
 
 ---
 
-### 3. ✅ Setup Azure Credentials in `terraform.tfvars`
-
-```
-terraform.tfvars
-----------------
-subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-client_id       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-client_secret   = "your-client-secret"
-tenant_id       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-```
-
-> ⚠️ Do **not commit** this file to GitHub.
 
 ---
 
@@ -110,19 +98,9 @@ tenant_id       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 ---
 
-## 📸 Screenshots (to attach)
-
-- ✅ Jenkins Job Configuration
-- ✅ Jenkins Pipeline Execution
-- ✅ Azure VM Provisioned
-- ✅ Web App in Browser
-
----
-
 ## 👨‍💻 Author
 
-**Sameer Khamwani**  
-Final Year – [Your University]  
+**Sameer Khamwani**   
 GitHub: [github.com/Sameer-Khamwani](https://github.com/Sameer-Khamwani)
 
 ---
