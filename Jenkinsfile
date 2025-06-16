@@ -6,7 +6,8 @@ pipeline {
         ARM_CLIENT_ID       = credentials('client_id')
         ARM_CLIENT_SECRET   = credentials('client_secret')
         ARM_TENANT_ID       = credentials('tenant_id')
-        SSH_PUBLIC_KEY      = credentials('ssh_public_key') // Fetch SSH key
+        SSH_PUBLIC_KEY      = credentials('ssh_public_key')
+        SSH_PRIVATE_KEY     = credentials('ssh_private_key') // Add this credential in Jenkins
         
         // Disable Ansible host key checking for automation
         ANSIBLE_HOST_KEY_CHECKING = "False"
@@ -45,22 +46,76 @@ pipeline {
                     
                     echo "Configuring server at IP: ${public_ip}"
                     
+                    // Setup SSH private key for Ansible
+                    sh '''
+                        echo "$SSH_PRIVATE_KEY" > /tmp/id_rsa
+                        chmod 600 /tmp/id_rsa
+                        eval $(ssh-agent -s)
+                        ssh-add /tmp/id_rsa 2>/dev/null || true
+                    '''
+                    
                     // Create Ansible inventory with SSH options
                     sh """
-                        echo "[web]" > ansible/hosts
-                        echo "${public_ip} ansible_user=azureuser ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" >> ansible/hosts
+                        mkdir -p ansible
+                        cat > ansible/hosts << EOF
+[web]
+${public_ip} ansible_user=azureuser ansible_ssh_private_key_file=/tmp/id_rsa
+
+[web:vars]
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30
+EOF
                     """
                     
-                    // Wait for SSH to be available (VM might still be booting)
+                    // Wait for SSH to be available with multiple methods
                     sh """
                         echo "Waiting for SSH to be available on ${public_ip}..."
-                        timeout 300 bash -c 'while ! nc -z ${public_ip} 22; do echo "Waiting for SSH..."; sleep 10; done'
-                        echo "SSH is now available!"
+                        SSH_READY=false
+                        
+                        for i in \$(seq 1 30); do
+                            echo "Attempt \$i/30: Testing SSH connectivity..."
+                            
+                            # Method 1: Try direct SSH connection
+                            if timeout 10 ssh -i /tmp/id_rsa -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o BatchMode=yes azureuser@${public_ip} echo "SSH Ready" 2>/dev/null; then
+                                echo "SSH is now available!"
+                                SSH_READY=true
+                                break
+                            fi
+                            
+                            # Method 2: Try using /dev/tcp if available
+                            if timeout 5 bash -c "echo >/dev/tcp/${public_ip}/22" 2>/dev/null; then
+                                echo "Port 22 is open, trying SSH again in 5 seconds..."
+                                sleep 5
+                                continue
+                            fi
+                            
+                            echo "SSH not ready yet, waiting 15 seconds..."
+                            sleep 15
+                        done
+                        
+                        if [ "\$SSH_READY" != "true" ]; then
+                            echo "SSH connection failed after 30 attempts"
+                            exit 1
+                        fi
                     """
                     
-                    // Run Ansible playbook
+                    // Run Ansible playbook with retry
                     sh '''
-                        ansible-playbook -i ansible/hosts ansible/install_web.yml -v
+                        echo "Running Ansible playbook..."
+                        ANSIBLE_RETRIES=3
+                        for i in $(seq 1 $ANSIBLE_RETRIES); do
+                            echo "Ansible attempt $i/$ANSIBLE_RETRIES"
+                            if ansible-playbook -i ansible/hosts ansible/install_web.yml -v; then
+                                echo "Ansible playbook completed successfully!"
+                                break
+                            else
+                                if [ $i -eq $ANSIBLE_RETRIES ]; then
+                                    echo "Ansible failed after $ANSIBLE_RETRIES attempts"
+                                    exit 1
+                                fi
+                                echo "Ansible attempt $i failed, retrying in 30 seconds..."
+                                sleep 30
+                            fi
+                        done
                     '''
                 }
             }
@@ -71,13 +126,24 @@ pipeline {
                     def ip = sh(script: "terraform -chdir=terraform output -raw public_ip", returnStdout: true).trim()
                     echo "Verifying deployment at http://${ip}"
                     
-                    // Add retry logic for verification
-                    retry(3) {
-                        sh """
-                            echo "Testing web server response..."
-                            curl -f --connect-timeout 10 --max-time 30 http://${ip}
-                        """
-                    }
+                    // Add retry logic for verification with longer timeout
+                    sh """
+                        echo "Waiting for web service to be ready..."
+                        for i in \$(seq 1 20); do
+                            echo "Verification attempt \$i/20"
+                            if timeout 15 curl -f --connect-timeout 10 --max-time 30 -s http://${ip}; then
+                                echo "Web service is responding!"
+                                break
+                            else
+                                if [ \$i -eq 20 ]; then
+                                    echo "Web service verification failed after 20 attempts"
+                                    exit 1
+                                fi
+                                echo "Web service not ready, waiting 15 seconds..."
+                                sleep 15
+                            fi
+                        done
+                    """
                     echo "Deployment verification successful!"
                 }
             }
@@ -87,7 +153,10 @@ pipeline {
     post {
         always {
             // Clean up temporary files
-            sh 'rm -f /tmp/id_rsa.pub'
+            sh '''
+                rm -f /tmp/id_rsa.pub /tmp/id_rsa
+                ssh-agent -k 2>/dev/null || true
+            '''
         }
         success {
             script {
@@ -97,6 +166,8 @@ pipeline {
         }
         failure {
             echo "Pipeline failed. Check the logs above for details."
+            // Optional: Add Terraform destroy on failure
+            // sh 'terraform -chdir=terraform destroy -auto-approve'
         }
     }
 }
