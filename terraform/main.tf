@@ -22,7 +22,11 @@ resource "azurerm_public_ip" "public_ip" {
   name                = var.public_ip_name
   location            = var.location
   resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"  # Static IP allocation required for Standard SKU
+
+  sku = "Standard"  # Ensure "Standard" SKU is set for advanced features
+  idle_timeout_in_minutes = 4
+  ip_version = "IPv4"
 }
 
 resource "azurerm_network_interface" "nic" {
