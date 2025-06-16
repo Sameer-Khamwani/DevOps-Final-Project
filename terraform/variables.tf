@@ -4,7 +4,7 @@ variable "location" {
 }
 
 variable "resource_group_name" {
-  default = "DevOpsRG"
+  default = "DevOpsRG-New"
 }
 
 variable "vnet_name" {
